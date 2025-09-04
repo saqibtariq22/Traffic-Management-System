@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent Traffic Control System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .traffic-light { width: 60px; height: 150px; background: #2d3748; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: space-around; padding: 8px; }
+        .light { width: 40px; height: 40px; border-radius: 50%; background: #4a5568; transition: background-color 0.3s; }
+        .light.red.active { background-color: #ef4444; box-shadow: 0 0 15px #ef4444; }
+        .light.yellow.active { background-color: #f59e0b; box-shadow: 0 0 15px #f59e0b; }
+        .light.green.active { background-color: #22c55e; box-shadow: 0 0 15px #22c55e; }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto p-8 max-w-7xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">AI-Enabled Intelligent Traffic
+Management System (ITMS)</h1>
+            <p class="text-gray-500 mt-1">Artificial Intelligence CCP Project</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+             <form id="analysis-form">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+                    <div>
+                        <label for="file-1" class="block text-lg font-medium text-gray-700 mb-2">Lane 1</label>
+                        <input type="file" id="file-1" name="file-1" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                    </div>
+                    <div>
+                        <label for="file-2" class="block text-lg font-medium text-gray-700 mb-2">Lane 2</label>
+                        <input type="file" id="file-2" name="file-2" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                    </div>
+                    <div>
+                        <label for="file-3" class="block text-lg font-medium text-gray-700 mb-2">Lane 3</label>
+                        <input type="file" id="file-3" name="file-3" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                    </div>
+                </div>
+                <button type="submit" id="analyze-button" class="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-indigo-700 transition text-lg">Analyze & Start Simulation</button>
+            </form>
+        </div>
+        
+        <div id="log-container" class="bg-gray-800 text-white p-4 rounded-lg shadow-md mb-8 hidden">
+            <h3 class="font-semibold text-lg mb-2">Simulation Log</h3>
+            <div id="log-messages" class="font-mono text-sm h-24 overflow-y-auto"></div>
+        </div>
+
+        <div id="results-container" class="space-y-8"></div>
+    </div>
+
+    <script>
+        let timerIntervals = {};
+        let laneAnalysisData = {};
+        let isSimulationRunning = false;
+
+        const form = document.getElementById('analysis-form');
+        const analyzeButton = document.getElementById('analyze-button');
+        const resultsContainer = document.getElementById('results-container');
+        const logContainer = document.getElementById('log-container');
+        const logMessages = document.getElementById('log-messages');
+
+        form.addEventListener('submit', handleFormSubmit);
+
+        async function handleFormSubmit(e) {
+            e.preventDefault();
+            stopAllTimers();
+            const formData = new FormData(form);
+            if (![...formData.values()].some(file => file.name)) {
+                alert('Please select at least one file to analyze.');
+                return;
+            }
+
+            setLoadingState(true);
+            
+            try {
+                const response = await fetch('/analyze', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Analysis failed');
+                
+                laneAnalysisData = data;
+                displayResults(data);
+                logMessage("Analysis complete. Starting simulation cycle...");
+                isSimulationRunning = true;
+                initiateTrafficCycle();
+
+            } catch (error) {
+                resultsContainer.innerHTML = `<p class="text-center text-red-500 font-semibold">Error: ${error.message}</p>`;
+                logMessage(`Error: ${error.message}`, 'error');
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        function setLoadingState(isLoading) {
+            analyzeButton.disabled = isLoading;
+            analyzeButton.textContent = isLoading ? 'Analyzing...' : 'Analyze & Start Simulation';
+            if (isLoading) {
+                resultsContainer.innerHTML = '<p class="text-center text-gray-500">Processing, please wait...</p>';
+                logContainer.classList.remove('hidden');
+                logMessages.innerHTML = '';
+                logMessage("Uploading files and running AI model...");
+            }
+        }
+
+        function stopAllTimers() {
+            Object.values(timerIntervals).forEach(clearInterval);
+            timerIntervals = {};
+            isSimulationRunning = false;
+            document.querySelectorAll('.light.green, .light.yellow').forEach(l => l.classList.remove('active'));
+            document.querySelectorAll('.light.red').forEach(l => l.classList.add('active'));
+            logMessage("Simulation stopped by user.", "warning");
+        }
+
+        function displayResults(data) {
+            resultsContainer.innerHTML = '';
+            Object.keys(data).sort().forEach(laneKey => {
+                const laneData = data[laneKey];
+                if (laneData) {
+                    const laneNumber = parseInt(laneKey.split('_')[1]);
+                    const resultBlock = document.createElement('div');
+                    resultBlock.className = 'bg-white p-6 rounded-lg shadow-md';
+                    resultBlock.innerHTML = createLaneHTML(laneNumber, laneData);
+                    resultsContainer.appendChild(resultBlock);
+                }
+            });
+
+            document.querySelectorAll('.override-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const laneKey = e.target.dataset.lane;
+                    logMessage(`Manual override activated for ${laneKey}.`, 'warning');
+                    stopAllTimers();
+                    isSimulationRunning = true;
+                    activateLane(laneKey, true);
+                });
+            });
+        }
+
+        async function initiateTrafficCycle() {
+            if (!isSimulationRunning) return;
+            await determineNextLane();
+        }
+
+        async function determineNextLane() {
+            try {
+                const response = await fetch('/get_priority', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lanes: laneAnalysisData })
+                });
+                const result = await response.json();
+                logMessage(`Priority check: ${result.reason}`);
+                if (result.next_lane) {
+                    activateLane(result.next_lane);
+                } else {
+                    isSimulationRunning = false;
+                    logMessage("All lanes cleared. Simulation complete.", "success");
+                }
+            } catch (error) {
+                console.error("Failed to get next priority lane:", error);
+                logMessage("Error determining next lane.", "error");
+            }
+        }
+
+        function activateLane(activeLaneKey, isOverride = false) {
+            if (!isSimulationRunning || !laneAnalysisData[activeLaneKey]) return;
+
+            Object.keys(laneAnalysisData).forEach(laneKey => {
+                if (laneAnalysisData[laneKey]) {
+                    const laneNum = parseInt(laneKey.split('_')[1]);
+                    const green = document.getElementById(`light-green-${laneNum}`);
+                    const yellow = document.getElementById(`light-yellow-${laneNum}`);
+                    const red = document.getElementById(`light-red-${laneNum}`);
+                    if (green && red) {
+                        green.classList.remove('active');
+                        yellow.classList.remove('active');
+                        red.classList.add('active');
+                    }
+                }
+            });
+            
+            const activeLaneNum = parseInt(activeLaneKey.split('_')[1]);
+            const activeGreen = document.getElementById(`light-green-${activeLaneNum}`);
+            const activeRed = document.getElementById(`light-red-${activeLaneNum}`);
+            if(activeGreen && activeRed) {
+                activeGreen.classList.add('active');
+                activeRed.classList.remove('active');
+                const laneData = laneAnalysisData[activeLaneKey];
+                startTimer(activeLaneNum, laneData.green_time, () => {
+                    laneAnalysisData[activeLaneKey] = null; 
+                    if (!isOverride) {
+                        initiateTrafficCycle();
+                    } else {
+                        isSimulationRunning = false;
+                        logMessage(`Override for ${activeLaneKey} complete. Restart simulation to continue.`, "success");
+                    }
+                });
+            }
+        }
+
+        function startTimer(laneNumber, totalSeconds, onCompleteCallback) {
+            clearInterval(timerIntervals[laneNumber]);
+            let remainingTime = totalSeconds;
+            const timerEl = document.getElementById(`timer-${laneNumber}`);
+            const yellowLight = document.getElementById(`light-yellow-${laneNumber}`);
+            const greenLight = document.getElementById(`light-green-${laneNumber}`);
+            
+            timerIntervals[laneNumber] = setInterval(() => {
+                if (!isSimulationRunning) {
+                    clearInterval(timerIntervals[laneNumber]);
+                    return;
+                }
+                remainingTime -= 0.01;
+                
+                if (remainingTime <= 0) {
+                    clearInterval(timerIntervals[laneNumber]);
+                    timerEl.textContent = '00:00.00';
+                    if (onCompleteCallback) onCompleteCallback();
+                    return;
+                }
+                
+                if (remainingTime <= 3 && remainingTime > 0) {
+                    greenLight.classList.remove('active');
+                    yellowLight.classList.add('active');
+                }
+
+                const minutes = Math.floor(remainingTime / 60);
+                const seconds = Math.floor(remainingTime % 60);
+                const milliseconds = Math.floor((remainingTime * 100) % 100);
+                timerEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(2, '0')}`;
+            }, 10);
+        }
+
+        function logMessage(message, type = 'info') {
+            const color = {
+                info: 'text-gray-300',
+                success: 'text-green-400',
+                warning: 'text-yellow-400',
+                error: 'text-red-400'
+            }[type];
+            logMessages.innerHTML += `<p class="${color}">> ${message}</p>`;
+            logMessages.scrollTop = logMessages.scrollHeight;
+        }
+
+        function createLaneHTML(laneNumber, data) {
+            if (data.error) {
+                return `<h2 class="text-2xl font-bold text-red-500">Lane ${laneNumber} Analysis Failed</h2><p>${data.error}</p>`;
+            }
+            let distributionHtml = '';
+            for (const [vehicle, count] of Object.entries(data.vehicle_distribution)) {
+                if (count > 0) {
+                    const isEmergency = ["ambulance", "fire truck", "police"].includes(vehicle);
+                    const color = isEmergency ? 'red' : 'blue';
+                     distributionHtml += `<span class="bg-${color}-100 text-${color}-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full">${vehicle}: ${count}</span>`;
+                }
+            }
+            return `
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Lane ${laneNumber} Results</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="md:col-span-1 space-y-8">
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h3 class="text-lg font-semibold mb-2 text-center">Signal Status</h3>
+                            <div class="flex justify-center items-center space-x-4">
+                                <div class="traffic-light">
+                                    <div id="light-red-${laneNumber}" class="light red active"></div>
+                                    <div id="light-yellow-${laneNumber}" class="light yellow"></div>
+                                    <div id="light-green-${laneNumber}" class="light green"></div>
+                                </div>
+                                <div>
+                                    <p class="text-gray-600 text-sm">Timer</p>
+                                    <p id="timer-${laneNumber}" class="text-3xl font-bold">00:00.00</p>
+                                </div>
+                            </div>
+                            <div class="mt-4 flex space-x-2">
+                                <button class="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg text-sm override-button" data-lane="lane_${laneNumber}">Force Green</button>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h3 class="text-lg font-semibold mb-2">Detection View</h3>
+                            <img src="${data.annotated_image_path}?t=${new Date().getTime()}" alt="Detection results for Lane ${laneNumber}" class="rounded-md w-full">
+                        </div>
+                    </div>
+                    <div class="md:col-span-2">
+                        <h3 class="text-lg font-semibold mb-2">Signal Timing Analysis</h3>
+                        <table class="min-w-full">
+                            <thead><tr class="border-b"><th class="text-left py-2">VEHICLE DISTRIBUTION</th><th class="text-left py-2">TOTAL</th><th class="text-left py-2">GREEN TIME</th></tr></thead>
+                            <tbody>
+                                <tr class="border-b">
+                                    <td class="py-3">${distributionHtml}</td>
+                                    <td class="py-3 font-bold">${data.vehicle_count}</td>
+                                    <td class="py-3 font-bold">${data.green_time.toFixed(2)}s</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

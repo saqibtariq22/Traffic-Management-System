@@ -1,0 +1,4 @@
+Flask
+inference-sdk
+opencv-python
+onnxruntime
