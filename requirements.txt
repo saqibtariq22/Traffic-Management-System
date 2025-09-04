@@ -1,4 +1,4 @@
 Flask
 inference-sdk
-opencv-python
+opencv-python-headless
 onnxruntime
